@@ -126,10 +126,10 @@ class App(customtkinter.CTk):
         else:
             self.error_label.configure(text="")
             vibe = self.textbox_1.get("0.0", "end")[:-1]
-            key = self.textbox_2.get("0.0", "end")[:-1]
+            apiKey = self.textbox_2.get("0.0", "end")[:-1] #change: variable name changed to apiKey
             if self.tabview.get() == "OpenAI":
                 print("OpenAI")
-                GenerateWallpaper(self.category_var.get(), self.artStyle_var.get(), exportFormat, vibe, key, self.optionmenu_lang.get())
+                GenerateWallpaper(self.category_var.get(), self.artStyle_var.get(), exportFormat, vibe, apiKey, self.optionmenu_lang.get())
             elif self.tabview.get() == "Free":
                 print("Free")
                 # GenerateWallpaper(self.category_var.get(), self.artStyle_var.get(), exportFormat, vibe, key, 'hindi')
