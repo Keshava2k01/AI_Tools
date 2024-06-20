@@ -126,3 +126,7 @@ Contributions to the AI Image Editor project are welcome. If you would like to c
 ### Acknowledgment
 
 The AI Image Editor project utilizes OpenAI's Dall-E model for image editing. We would like to express our gratitude to OpenAI for their groundbreaking work and for providing the tools and resources to make this project possible.
+
+### New Changes made
+
+The new OpenAI API is now supported, migrated all functions to work for the latest OpenAI models such as gpt-4o, dall-e-3 (for image generation) and dall-e-2 (for editing purposes).
