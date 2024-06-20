@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 import requests
 import json
 import ctypes
@@ -9,8 +9,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
 from io import BytesIO
 
-def GetQuote(categories, languague = "english"):
-    if languague == "English":        
+
+
+
+def GetQuote(categories, languague="english"):
+    if languague == "English":
         responseDict = json.loads(requests.get('https://api.quotable.io/tags').text)
         tagslugs = [tag['slug'] for tag in responseDict]
         tagnames = [tag['name'] for tag in responseDict]
@@ -25,46 +28,53 @@ def GetQuote(categories, languague = "english"):
         for category in categories:
             if category in ['success', 'love', 'attitude', 'positive', 'motivational']:
                 response = requests.get(f"https://hindi-quotes.vercel.app/random/{category}")
-                responseDict = json.loads(response.text)        
+                responseDict = json.loads(response.text)
                 return responseDict['quote'], ""
     else:
         print("Invalid Language:")
         exit()
-        
+
+
 def GetPromptFromQuote(quote, category, artStyle, vibeStr, apiKey):
-    openai.api_key = apiKey
-    
+    client = OpenAI(
+        api_key=apiKey
+    ) #change: migration to new OpenAI
+
     if vibeStr == "":
         messages = [
-            {"role": "system", "content": f"Your task is to create a prompt that i can give to an image generator to get back a wallpaper, in {artStyle} style, that encapsulates the emotion and context of the quote. the wallpaper should have a dark but colorful asthetic, represent the theme of '{category[0]}' and not contain any text. the prompt should only describe image details and color pallet in the wallpaper, limited to 30 words."},
+            {"role": "system",
+             "content": f"Your task is to create a prompt that i can give to an image generator to get back a wallpaper, in {artStyle} style, that encapsulates the emotion and context of the quote. the wallpaper should have a dark but colorful asthetic, represent the theme of '{category[0]}' and not contain any text. the prompt should only describe image details and color pallet in the wallpaper, limited to 30 words."},
             {"role": "user", "content": f"quote: {quote}"}
         ]
     else:
         messages = [
-            {"role": "system", "content": f"Your task is to create a prompt that i can give to an image generator to get back a wallpaper, in {artStyle} style, that encapsulates the emotion and context of the quote and the vibe: {vibeStr}. the wallpaper should have a dark but colorful asthetic, represent the theme of '{category[0]}' and not contain any text. the prompt should only describe image details and color pallet in the wallpaper, limited to 30 words."},
+            {"role": "system",
+             "content": f"Your task is to create a prompt that i can give to an image generator to get back a wallpaper, in {artStyle} style, that encapsulates the emotion and context of the quote and the vibe: {vibeStr}. the wallpaper should have a dark but colorful asthetic, represent the theme of '{category[0]}' and not contain any text. the prompt should only describe image details and color pallet in the wallpaper, limited to 30 words."},
             {"role": "user", "content": f"quote: {quote}"}
         ]
-    completion = openai.ChatCompletion.create(
-    model="gpt-3.5-turbo",
-    messages=messages
+    completion = client.chat.completions.create(
+        model="gpt-4o", #change: used new gpt model
+        messages=messages
     )
     return completion.choices[0].message.content
 
-def GetImageURL(Prompt, ImageCount=1, ImageSize='512x512'):
-    
-    response = openai.Image.create(
-            prompt = Prompt,
-            n = ImageCount,
-            size = ImageSize,
-            )
-    
+
+def GetImageURL(Prompt, apiKey, ImageCount=1, ImageSize='512x512'):
+    client = OpenAI(api_key=apiKey)
+    response = client.images.generate(
+        prompt=Prompt,
+        model="dall-e-3", #change: used new dall-e model for image generation
+        n=ImageCount,
+        size=ImageSize
+    )
     urls = []
-    for data in response['data']:
-        urls.append(data['url'])
-        
+    for image in response.data:
+        urls.append(image.url)
     return urls
 
-def ExtendImageHorizontal(img, screenAspectRatio, prompt):
+
+def ExtendImageHorizontal(img, screenAspectRatio, prompt, apiKey):
+    client = OpenAI(api_key=apiKey) #change: migration to new OpenAI
     def get_image(image_url):
         # Send a GET request to the URL and store the response
         response = requests.get(image_url)
@@ -75,22 +85,22 @@ def ExtendImageHorizontal(img, screenAspectRatio, prompt):
             return Image.open(image_buffer)
         else:
             raise ValueError(f'Image could not be retrieved from {image_url}')
-        
+
     h, w = img.size
     f = 3
     newWidth = int(w * screenAspectRatio)
     rectangle = np.zeros([h, newWidth, f], dtype='uint8')
     start = (newWidth - w) // 2
-    rectangle[:,start:start + w] = np.array(img)
+    rectangle[:, start:start + w] = np.array(img)
 
     left = rectangle[:, :h]
     right = rectangle[:, -h:]
 
     # Left part is all zeros
-    mask_left = np.hstack([np.zeros([h, start, f+1]), 
-                            255*np.ones([h, w - start , f+1])]).astype('uint8')
-    mask_right = np.hstack([255*np.ones([h, w - start, f+1]), 
-                            np.zeros([h, start, f+1])]).astype('uint8')
+    mask_left = np.hstack([np.zeros([h, start, f + 1]),
+                           255 * np.ones([h, w - start, f + 1])]).astype('uint8')
+    mask_right = np.hstack([255 * np.ones([h, w - start, f + 1]),
+                            np.zeros([h, start, f + 1])]).astype('uint8')
 
     left_buffer = BytesIO()
     mask_buffer = BytesIO()
@@ -98,37 +108,43 @@ def ExtendImageHorizontal(img, screenAspectRatio, prompt):
     Image.fromarray(left).save(left_buffer, 'png')
     Image.fromarray(mask_left).save(mask_buffer, 'png')
 
-    edit_top = openai.Image.create_edit(
+    edit_top = client.images.edit(
         image=left_buffer.getvalue(),
-        mask=mask_buffer.getvalue(),
         prompt=prompt,
+        mask=mask_buffer.getvalue(),
+        model="dall-e-2",  #change: added all-e-2 model for image editing & changed funciton used
         n=1,
         size='1024x1024'
     )
-    image_left = get_image(edit_top['data'][0]['url'])
-    
+    url = [image.url for image in edit_top.data] #change: created array to get url for avoiding type errors
+    image_left = get_image(url[0])
+
     right_buffer = BytesIO()
     mask_buffer = BytesIO()
 
     Image.fromarray(right).save(right_buffer, 'png')
     Image.fromarray(mask_right).save(mask_buffer, 'png')
 
-    edit_top = openai.Image.create_edit(
+    edit_top = client.images.edit(
         image=right_buffer.getvalue(),
-        mask=mask_buffer.getvalue(),
         prompt=prompt,
+        mask=mask_buffer.getvalue(),
+        model="dall-e-2",  #change: added all-e-2 model for image editing & changed funciton used
         n=1,
         size='1024x1024'
     )
-    image_right = get_image(edit_top['data'][0]['url'])
-    
+    url = [image.url for image in edit_top.data] #change: created array to get url for avoiding type errors
+    image_right = get_image(url[0])
+
     img_final = Image.new('RGB', (newWidth, rectangle.shape[0]))
     img_final.paste(image_left, (0, 0))
     img_final.paste(image_right, (newWidth - w, 0))
-    
+
     return img_final
 
-def ExtendImageVertical(img, screenAspectRatio, prompt):
+
+def ExtendImageVertical(img, apiKey, screenAspectRatio, prompt):
+    client = OpenAI(api_key=apiKey)
     def get_image(image_url):
         # Send a GET request to the URL and store the response
         response = requests.get(image_url)
@@ -145,16 +161,16 @@ def ExtendImageVertical(img, screenAspectRatio, prompt):
     newHeight = int(w * screenAspectRatio)
     rectangle = np.zeros([newHeight, w, f], dtype='uint8')
     start = (newHeight - w) // 2
-    rectangle[start:start + h,:] = np.array(img)
+    rectangle[start:start + h, :] = np.array(img)
 
     top = rectangle[:h, :]
     bottom = rectangle[-h:, :]
 
     # # Top part is all zeros
-    mask_top = np.concatenate([np.zeros([start, w, f+1]), 
-                            255*np.ones([h - start, w , f+1])]).astype('uint8')
-    mask_bottom = np.concatenate([255*np.ones([h - start, w, f+1]), 
-                            np.zeros([start, w, f+1])]).astype('uint8')
+    mask_top = np.concatenate([np.zeros([start, w, f + 1]),
+                               255 * np.ones([h - start, w, f + 1])]).astype('uint8')
+    mask_bottom = np.concatenate([255 * np.ones([h - start, w, f + 1]),
+                                  np.zeros([start, w, f + 1])]).astype('uint8')
 
     top_buffer = BytesIO()
     mask_buffer = BytesIO()
@@ -162,37 +178,42 @@ def ExtendImageVertical(img, screenAspectRatio, prompt):
     Image.fromarray(top).save(top_buffer, 'png')
     Image.fromarray(mask_top).save(mask_buffer, 'png')
 
-    edit_top = openai.Image.create_edit(
+    edit_top = client.images.edit(
         image=top_buffer.getvalue(),
-        mask=mask_buffer.getvalue(),
         prompt=prompt,
+        mask=mask_buffer.getvalue(),
+        model="dall-e-2", #change:added all-e-2 model for image editing & changed funciton used
         n=1,
         size='1024x1024'
     )
-    image_top = get_image(edit_top['data'][0]['url'])
-    
+    url = [image.url for image in edit_top.data]  #change: created array to get url for avoiding type errors
+    image_top = get_image(url[0])
+
     bottom_buffer = BytesIO()
     mask_buffer = BytesIO()
 
     Image.fromarray(bottom).save(bottom_buffer, 'png')
     Image.fromarray(mask_bottom).save(mask_buffer, 'png')
 
-    edit_bottom = openai.Image.create_edit(
+    edit_bottom = client.images.edit(
         image=bottom_buffer.getvalue(),
-        mask=mask_buffer.getvalue(),
         prompt=prompt,
+        mask=mask_buffer.getvalue(),
+        model="dall-e-2",  #change: added all-e-2 model for image editing & changed funciton used
         n=1,
         size='1024x1024'
     )
-    image_bottom = get_image(edit_bottom['data'][0]['url'])
-    
+    url = [image.url for image in edit_bottom.data] #change: created array to get url for avoiding type errors
+    image_bottom = get_image(url[0])
+
     img_final = Image.new('RGB', (rectangle.shape[1], newHeight))
     img_final.paste(image_top, (0, 0))
     img_final.paste(image_bottom, (0, newHeight - h))
-    
+
     return img_final
 
-def AddPaddingToWallpaper(image, aspectRatio=(16//9), blurRadius=25):
+
+def AddPaddingToWallpaper(image, aspectRatio=(16 // 9), blurRadius=25):
     image = image.convert('RGBA')
     height = image.height
     newWidth = int(height * aspectRatio)
@@ -200,38 +221,41 @@ def AddPaddingToWallpaper(image, aspectRatio=(16//9), blurRadius=25):
     paddingImg = paddingImg.filter(ImageFilter.GaussianBlur(blurRadius))
     resultImg = Image.new('RGBA', paddingImg.size)
     resultImg.paste(paddingImg, (0, 0))
-    resultImg.paste(image, ((newWidth - height) // 2 ,0), mask=image)
-    
+    resultImg.paste(image, ((newWidth - height) // 2, 0), mask=image)
+
     return resultImg
 
+
 def AddCaption(image, message, author, fontColor='white', borderColor='black'):
-    font = ImageFont.truetype("Amiko-Regular.ttf", size=int(image.size[1]/50))
+    font = ImageFont.truetype("Amiko-Regular.ttf", size=int(image.size[1] / 50))
     nSpaces = (font.getlength(message) - font.getlength(author)) // font.getlength(" ")
-    textOverlay = message + '\n' + ' ' * int(nSpaces * 0.95) + author        
+    textOverlay = message + '\n' + ' ' * int(nSpaces * 0.95) + author
     W, H = (image.size[0], image.size[1])
     draw = ImageDraw.Draw(image)
     _, _, w, h = draw.textbbox((0, 0), textOverlay, font=font)
-    textLocation = ((W-w)/2, (H-h)*7.3/8)
+    textLocation = ((W - w) / 2, (H - h) * 7.3 / 8)
 
     # For borders
     borderWidth = 1
     for x in (-1, 0, 1):
         for y in (-1, 0, 1):
             draw.text((
-                    textLocation[0] + (borderWidth * x),
-                    textLocation[1] + (borderWidth * y),
-                ),
+                textLocation[0] + (borderWidth * x),
+                textLocation[1] + (borderWidth * y),
+            ),
                 textOverlay,
                 font=font,
                 fill=borderColor,
             )
 
-    draw.text(textLocation, textOverlay, fill=fontColor, font=font)#'OpenSansCondensed-LightItalic.ttf')
+    draw.text(textLocation, textOverlay, fill=fontColor, font=font)  # 'OpenSansCondensed-LightItalic.ttf')
 
-    return image    
+    return image
 
-def ProcessSave(image, message, author, prompt, exportFormat, saveName):
+
+def ProcessSave(image, message, author, prompt, exportFormat, saveName, apiKey):
     imageNames = []
+
     def SaveImage(img, suffix):
         if exportFormat[4] == '1':
             imgCap = AddCaption(img.copy(), message, author)
@@ -240,26 +264,27 @@ def ProcessSave(image, message, author, prompt, exportFormat, saveName):
         if exportFormat[5] == '1':
             img.save(saveName + '_' + suffix + '.png')
             imageNames.append(saveName + '_' + suffix + '.png')
-            
-    user32 = ctypes.windll.user32    
-    screenAspectRatio = user32.GetSystemMetrics(0) / user32.GetSystemMetrics(1) # width / height
+
+    user32 = ctypes.windll.user32
+    screenAspectRatio = user32.GetSystemMetrics(0) / user32.GetSystemMetrics(1)  # width / height
     image = Image.open(image)
     '[self.cbSquare_var.get(0), self.cbPadded_var.get(1), self.cbHorizontal_var.get(2), self.cbVertical_var.get(3), self.cbCaption_var.get(4), self.cbNoCaption_var.get(5)]'
 
     if exportFormat[2] == '1':
-        SaveImage(ExtendImageHorizontal(image, screenAspectRatio, prompt), 'horizontal')
+        SaveImage(ExtendImageHorizontal(image, screenAspectRatio, prompt, apiKey), 'horizontal')
     if exportFormat[1] == '1':
         SaveImage(AddPaddingToWallpaper(image, screenAspectRatio), 'padded')
     if exportFormat[0] == '1':
         SaveImage(image, 'square')
     if exportFormat[3] == '1':
-        verticalImage = ExtendImageVertical(image, screenAspectRatio = 2, prompt=prompt)
+        verticalImage = ExtendImageVertical(image, apiKey, screenAspectRatio=2, prompt=prompt) #change: needs apiKey to run so added as parameter
         verticalImage.save(saveName + '_vertical.png')
         imageNames.append(saveName + '_vertical.png')
-        
+
     return imageNames[0]
 
-def SaveImageCalled(urls, name, quote, author, prompt, exportFormat):
+
+def SaveImageCalled(urls, name, quote, author, prompt, exportFormat, apiKey):
     if not os.path.exists(name.split('/')[0]):
         os.makedirs(name.split('/')[0])
     for i in range(len(urls)):
@@ -270,31 +295,33 @@ def SaveImageCalled(urls, name, quote, author, prompt, exportFormat):
         else:
             count = 1
             imageSaveName = f"{name}{count}"
-        
+
         imageData = requests.get(urls[i]).content
         imageStream = io.BytesIO(imageData)
-        imageSaveName = ProcessSave(imageStream, quote, author, prompt, exportFormat, imageSaveName)
-    
+        imageSaveName = ProcessSave(imageStream, quote, author, prompt, exportFormat, imageSaveName, apiKey) #change: needs apiKey to run so added
+
         f = open("Wallpapers/wallpaper_logs.txt", "a", encoding="utf8")
         print(str(count) + ". " + quote + author + " | " + prompt + " \n")
         f.write(str(count) + ". " + quote + author + " | " + prompt + " \n")
         f.close()
-        
+
     return imageSaveName
+
 
 def SetWallpaper(imageName):
     cwd = os.getcwd()
-    ctypes.windll.user32.SystemParametersInfoW(20, 0, cwd+f"\{imageName}" , 0) 
-    
+    ctypes.windll.user32.SystemParametersInfoW(20, 0, cwd + f"\{imageName}", 0)
+
+
 def GenerateWallpaper(category, artStyle, exportFormat, vibeStr, apiKey, language):
     imageName = 'Wallpapers/wallpaper'
-    category = [category,'famous-quotes']
+    category = [category, 'famous-quotes']
     # languague = 'english'
     print(category, artStyle, exportFormat, vibeStr, apiKey, language)
     quote, author = GetQuote(category, language)
     prompt = GetPromptFromQuote(quote, category, artStyle, vibeStr, apiKey)
-    image_url = GetImageURL(prompt, ImageCount=1, ImageSize='1024x1024')
-    print("Quote: " + quote +  author + "\n" + prompt)
-    
-    imageName = SaveImageCalled(image_url, imageName, quote, author, prompt, exportFormat)
+    image_url = GetImageURL(prompt, apiKey, ImageCount=1, ImageSize='1024x1024') #change: needs apiKey to run so added
+    print("Quote: " + quote + author + "\n" + prompt)
+
+    imageName = SaveImageCalled(image_url, imageName, quote, author, prompt, exportFormat, apiKey)
     SetWallpaper(imageName)
